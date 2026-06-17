@@ -4,11 +4,13 @@ from sqlalchemy.orm import Session
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.user import User
 from app.repositories.user_repository import UserRepository
+from app.services.category_service import CategoryService
 
 
 class AuthService:
     def __init__(self, db: Session) -> None:
         self.repo = UserRepository(db)
+        self.db = db
 
     def create_user(self, email: str, password: str) -> User:
         if self.repo.get_by_email(email):
@@ -17,7 +19,9 @@ class AuthService:
                 detail="Email already registered",
             )
         hashed = get_password_hash(password)
-        return self.repo.create(email=email, hashed_password=hashed)
+        user = self.repo.create(email=email, hashed_password=hashed)
+        CategoryService(self.db).seed_default_categories(user.id)
+        return user
 
     def authenticate_user(self, email: str, password: str) -> User:
         user = self.repo.get_by_email(email)
