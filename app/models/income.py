@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Optional
 
 from sqlalchemy import Date, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -15,6 +18,8 @@ class Income(Base):
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     income_date: Mapped[date] = mapped_column(Date, nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    category_id: Mapped[Optional[int]] = mapped_column(ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
-    user: Mapped["User"] = relationship(back_populates="incomes")
+    user: Mapped[User] = relationship(back_populates="incomes")
+    category: Mapped[Optional[Category]] = relationship(back_populates="incomes")

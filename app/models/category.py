@@ -21,3 +21,4 @@ class Category(Base):
 
     user: Mapped[Optional[User]] = relationship(back_populates="categories")
     expenses: Mapped[list[Expense]] = relationship(back_populates="category")
+    incomes: Mapped[list[Income]] = relationship(back_populates="category")
