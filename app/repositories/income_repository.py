@@ -101,3 +101,35 @@ class IncomeRepository:
             for r in rows
         ]
         return total, by_category
+
+    def sum_by_user(
+        self,
+        user_id: int,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> Decimal:
+        q = self.db.query(func.sum(Income.amount)).filter(Income.user_id == user_id)
+        if start_date:
+            q = q.filter(Income.income_date >= start_date)
+        if end_date:
+            q = q.filter(Income.income_date <= end_date)
+        result = q.scalar()
+        return result or Decimal(0)
+
+    def group_by_month(
+        self,
+        user_id: int,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+    ) -> list[dict]:
+        month_label = func.to_char(Income.income_date, "YYYY-MM").label("month")
+        q = (
+            self.db.query(month_label, func.sum(Income.amount).label("total"))
+            .filter(Income.user_id == user_id)
+        )
+        if start_date:
+            q = q.filter(Income.income_date >= start_date)
+        if end_date:
+            q = q.filter(Income.income_date <= end_date)
+        rows = q.group_by(month_label).order_by(month_label).all()
+        return [{"month": r.month, "total": r.total or Decimal(0)} for r in rows]
