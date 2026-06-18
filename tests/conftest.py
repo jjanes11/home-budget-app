@@ -16,8 +16,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 # ── point to the test DB before any app imports resolve settings ──────────────
-os.environ["DATABASE_URL"] = (
-    "postgresql://postgres:postgres@localhost:5433/home_budget_test"
+# Use DATABASE_URL from the environment (set by CI) or fall back to the local
+# Docker Compose test DB on port 5433.
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql://postgres:postgres@localhost:5433/home_budget_test",
 )
 
 from app.core.security import create_access_token, get_password_hash  # noqa: E402
