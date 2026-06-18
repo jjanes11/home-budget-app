@@ -46,6 +46,10 @@ jobs:
         run: |
           ruff check .
 
-      - name: Run tests
+      - name: Run unit tests
         run: |
-          pytest -q
+          pytest tests/unit/ -q
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -q

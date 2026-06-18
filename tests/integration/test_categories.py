@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import make_category
+from tests.integration.conftest import make_category
 
 
 # ── create ────────────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi.testclient import TestClient
 
-from tests.conftest import make_category, make_income
+from tests.integration.conftest import make_category, make_income
 
 
 # ── create ────────────────────────────────────────────────────────────────────
