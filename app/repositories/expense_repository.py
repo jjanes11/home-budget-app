@@ -131,4 +131,3 @@ class ExpenseRepository:
             q = q.filter(Expense.expense_date <= end_date)
         rows = q.group_by(month_label).order_by(month_label).all()
         return [{"month": r.month, "total": r.total or Decimal(0)} for r in rows]
-        return total, by_category

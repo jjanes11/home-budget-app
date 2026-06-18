@@ -1,9 +1,6 @@
 """Integration tests: authentication endpoints."""
 
-import pytest
 from fastapi.testclient import TestClient
-
-from tests.conftest import make_user, auth_headers_for
 
 
 # ── startup / health ──────────────────────────────────────────────────────────

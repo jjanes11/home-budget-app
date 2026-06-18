@@ -1,6 +1,6 @@
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Optional
 
 from sqlalchemy.orm import Session
 
