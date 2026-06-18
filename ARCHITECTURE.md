@@ -1,377 +1,131 @@
-# Home Budget API – Architecture & Implementation Plan
+# Architecture — Home Budget API
 
-## 1. Overview
+## System Overview
 
-This is a Home Budget REST API built with FastAPI and PostgreSQL.
+A layered FastAPI backend backed by PostgreSQL. The application follows a strict three-layer separation: API → Service → Repository. Each layer has a single responsibility and communicates only with the layer directly below it.
 
-It allows users to:
-- Register and authenticate
-- Manage categories (including predefined system categories)
-- Track expenses (money spent)
-- Track income (money earned)
-- Filter and search financial records
-- Generate aggregated financial reports
-
-The system focuses on clean REST design, relational modeling, authentication, filtering, and SQL aggregation.
-
----
-
-## 2. Tech Stack
-
-- Python 3.12
-- FastAPI
-- PostgreSQL
-- SQLAlchemy 2.0 (ORM)
-- Pydantic v2
-- passlib[bcrypt]
-- python-jose (JWT)
-- pytest
-- Docker + Docker Compose
-- GitHub Actions (CI)
+```
+Client
+  │
+  ▼
+FastAPI (routers)       ← HTTP request/response, auth guards, schema validation
+  │
+  ▼
+Service layer           ← business logic, authorization checks, error raising
+  │
+  ▼
+Repository layer        ← SQL queries via SQLAlchemy 2.0 ORM
+  │
+  ▼
+PostgreSQL 16
+```
 
 ---
 
-## 3. High-Level Architecture
+## Core Layers
 
+### API Layer (`app/api/routers/`)
 
-Client (Postman / future SPA)
-|
-v
-FastAPI Application
-|
-|-- API Layer (routers)
-|-- Service Layer (business logic)
-|-- Repository Layer (database access)
-|
-v
-PostgreSQL Database
+- One router module per domain: `auth`, `expenses`, `incomes`, `categories`, `reports`
+- Handles HTTP concerns only: path parameters, query parameters, request bodies, status codes
+- Injects the current authenticated user via a shared `deps.py` dependency
+- Returns Pydantic response schemas; never returns raw ORM objects
 
+### Service Layer (`app/services/`)
 
----
+- Contains all business logic: validation rules, period calculations, category ownership checks
+- Raises `HTTPException` when invariants are violated (e.g., category not owned by user)
+- Calls one or more repositories; orchestrates cross-repository operations for reports
 
-## 4. Project Structure
+### Repository Layer (`app/repositories/`)
 
-
-app/
-│
-├── main.py
-│
-├── core/
-│ ├── config.py
-│ ├── security.py
-│
-├── db/
-│ ├── session.py
-│ ├── base.py
-│
-├── models/
-│ ├── user.py
-│ ├── category.py
-│ ├── expense.py
-│ ├── income.py
-│
-├── schemas/
-│ ├── user.py
-│ ├── category.py
-│ ├── expense.py
-│ ├── income.py
-│ ├── auth.py
-│
-├── repositories/
-│ ├── expense_repository.py
-│ ├── income_repository.py
-│ ├── category_repository.py
-│ ├── user_repository.py
-│
-├── services/
-│ ├── auth_service.py
-│ ├── expense_service.py
-│ ├── income_service.py
-│ ├── category_service.py
-│ ├── report_service.py
-│
-├── api/
-│ ├── routers/
-│ │ ├── auth.py
-│ │ ├── categories.py
-│ │ ├── expenses.py
-│ │ ├── incomes.py
-│ │ ├── reports.py
-│ │
-│ ├── deps.py
-│
-├── tests/
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── README.md
-
+- Thin wrappers around SQLAlchemy `Session`
+- No business logic — only CRUD and filtered queries
+- Methods accept primitive arguments and return ORM model instances
 
 ---
 
-## 5. Data Model
+## Domain Model
 
-### 5.1 User
-- id
-- email (unique)
-- hashed_password
-- balance (optional initial budget reference)
-- created_at
-- updated_at
+| Entity | Key fields | Relationships |
+|---|---|---|
+| `User` | `id`, `email`, `hashed_password`, `created_at` | owns Expenses, Incomes, Categories |
+| `Category` | `id`, `name`, `user_id` | belongs to User; referenced by Expenses and Incomes |
+| `Expense` | `id`, `amount`, `description`, `expense_date`, `user_id`, `category_id` | belongs to User and Category |
+| `Income` | `id`, `amount`, `description`, `income_date`, `user_id`, `category_id` | belongs to User and Category |
 
----
-
-### 5.2 Category
-Supports:
-- system default categories (Food, Transport, etc.)
-- user-defined categories
-
-Fields:
-- id
-- name
-- user_id (nullable for system categories)
-- is_default (bool)
+All financial records are user-scoped — queries always filter by `user_id` so users never see each other's data.
 
 ---
 
-### 5.3 Expense (money spent)
-- id
-- description
-- amount (Decimal > 0)
-- expense_date (business date)
-- created_at
-- updated_at
-- user_id (FK → User)
-- category_id (FK → Category)
+## Authentication Flow
+
+The API uses **OAuth2 password flow** with **JWT bearer tokens**.
+
+```
+POST /auth/register  →  hash password, persist User, return access token
+POST /auth/login     →  verify password, issue JWT (HS256, 30-min expiry)
+
+Subsequent requests:
+  Authorization: Bearer <token>
+    │
+    ▼
+  deps.get_current_user()  →  decode JWT → load User from DB → inject into route
+```
+
+Tokens are stateless — there is no session store or token revocation mechanism.
 
 ---
 
-### 5.4 Income (money earned)
-- id
-- description
-- amount (Decimal > 0)
-- income_date (business date)
-- created_at
-- updated_at
-- user_id (FK → User)
+## Data Flow Example
+
+A typical authenticated write request:
+
+```
+POST /expenses
+  │  Authorization: Bearer <token>
+  │  Body: { amount, description, category_id, expense_date }
+  │
+  ▼
+expenses router
+  ├─ validate request body (Pydantic)
+  ├─ resolve current user (JWT dependency)
+  └─ call ExpenseService.create_expense(user_id, data)
+       │
+       ▼
+     ExpenseService
+       ├─ verify category belongs to user (CategoryRepository.get_by_id)
+       └─ call ExpenseRepository.create(...)
+            │
+            ▼
+          SQLAlchemy INSERT → PostgreSQL
+            │
+            ▼
+          ORM Expense instance returned up the stack
+            │
+            ▼
+router returns ExpenseResponse (Pydantic schema)  →  201 Created
+```
 
 ---
 
-## 6. Authentication Flow
+## Testing Strategy
 
-- Passwords hashed using bcrypt (passlib)
-- JWT tokens generated using python-jose
-- OAuth2PasswordBearer used for authentication
-- Current user resolved via dependency injection
+The test suite is split into two tiers:
 
----
+### Unit tests (`tests/unit/`)
 
-## 7. API Endpoints
+- **Target**: service layer business logic (`ExpenseService`, `IncomeService`, `ReportService`) and the `_date_range` pure function in `report_service`
+- **Isolation**: all repository and `Session` dependencies replaced with `MagicMock`; `date.today()` patched for deterministic date-range assertions
+- **Speed**: ~0.35 s; no database, no Docker
+- **54 tests** covering: 404 guards, argument delegation, period→start_date mapping, net balance calculation, monthly trend merging and zero-defaults
 
-### 7.1 Auth
-- POST /auth/register
-- POST /auth/login
-- GET /auth/me
+### Integration tests (`tests/integration/`)
 
----
+- **No mocks** — every test hits a real PostgreSQL instance (`home_budget_test` on port 5433)
+- **Fixture scope**: tables are created once per session; rows are truncated after each test via `TRUNCATE ... RESTART IDENTITY CASCADE`
+- **HTTP layer tested end-to-end** using FastAPI's `TestClient` (backed by HTTPX)
 
-### 7.2 Categories
-- POST /categories
-- GET /categories
-- GET /categories/{id}
-- PUT /categories/{id}
-- DELETE /categories/{id}
+### CI
 
-Default categories are seeded on application startup.
-
----
-
-## 7.3 Expenses
-
-### CRUD
-- POST /expenses
-- GET /expenses
-- GET /expenses/{id}
-- PUT /expenses/{id}
-- DELETE /expenses/{id}
-
----
-
-### Filtering / Search / Sorting / Pagination
-
-All filters are implemented using a **Pydantic filter dependency model**.
-
-Supported query parameters:
-
-#### Filtering
-- category_id
-- min_amount
-- max_amount
-- date_from
-- date_to
-
-#### Search
-- search (case-insensitive search on description using `ILIKE`)
-
-#### Sorting
-- sort=amount_asc
-- sort=amount_desc
-- sort=date_asc
-- sort=date_desc
-
-#### Pagination
-- page
-- page_size
-
----
-
-### Query Execution Flow
-
-The query is built incrementally:
-
-1. Base query (user-scoped)
-2. Apply filters (if present)
-3. Apply search (ILIKE on description)
-4. Apply sorting (ORDER BY mapped fields)
-5. Apply pagination (LIMIT/OFFSET)
-
----
-
-## 7.4 Incomes
-
-Same structure as expenses:
-
-- POST /incomes
-- GET /incomes
-- GET /incomes/{id}
-- PUT /incomes/{id}
-- DELETE /incomes/{id}
-
-Supports filtering, search, sorting, and pagination (same pattern as expenses).
-
----
-
-## 7.5 Reports
-
-### Endpoints
-- GET /reports/summary?period=month|quarter|year
-- GET /reports/summary?from=YYYY-MM-DD&to=YYYY-MM-DD
-
----
-
-### Aggregation Features
-
-Reports operate on aggregated SQL queries:
-
-#### Total income
-```sql
-SUM(incomes.amount)
-Total expenses
-SUM(expenses.amount)
-Net balance
-net = total_income - total_expenses
-Expenses grouped by category
-GROUP BY category_id
-SUM(amount)
-Example response
-{
-  "period": "month",
-  "total_income": 3000,
-  "total_expenses": 1200,
-  "net_balance": 1800,
-  "expense_by_category": [
-    { "category": "Food", "amount": 450 },
-    { "category": "Transport", "amount": 200 }
-  ]
-}
-8. Business Rules
-Users can only access their own data (strict multi-tenancy)
-Expense amounts must be > 0
-Income amounts must be > 0
-Categories:
-system categories are global and read-only
-user categories are editable
-Expenses must belong to a category
-All queries are scoped by authenticated user
-9. Query Design Pattern
-
-All list endpoints follow this pipeline:
-
-Base Query
-  → Filters (exact match conditions)
-  → Search (ILIKE text search)
-  → Sorting (ORDER BY mapped fields)
-  → Pagination (LIMIT/OFFSET)
-
-Grouping is only used in reporting endpoints.
-
-10. Database Strategy
-SQLAlchemy ORM models
-No Alembic (simplified take-home setup)
-Tables created on startup:
-Base.metadata.create_all(bind=engine)
-
-Optional:
-
-seed default categories on startup
-11. Docker Setup
-
-Services:
-
-FastAPI backend
-PostgreSQL database
-
-Run:
-
-docker compose up --build
-12. Testing Strategy
-
-Using pytest + FastAPI TestClient.
-
-Coverage:
-
-Auth (register/login/me)
-Categories CRUD + ownership rules
-Expenses CRUD + filtering/sorting/search
-Incomes CRUD + filtering
-Reports aggregation correctness
-13. CI Pipeline (GitHub Actions)
-
-On push / pull request:
-
-install dependencies
-start PostgreSQL
-run pytest
-
-No deployment step included.
-
-14. Non-Goals
-No frontend implementation
-No microservices architecture
-No caching layer (Redis)
-No event-driven system
-No external FX or banking APIs
-No overengineering of financial accounting systems
-15. Implementation Order
-Project setup + DB config
-Auth system
-Categories CRUD + seed data
-Expenses CRUD + filtering system
-Incomes CRUD
-Reports aggregation
-Tests
-Docker setup
-CI pipeline
-16. Success Criteria
-
-Project is complete when:
-
-docker compose up runs everything
-Swagger UI works (/docs)
-Users can authenticate
-Expenses + incomes CRUD works
-Filtering, search, sorting work correctly
-Reports return correct aggregates
-Tests pass in CI
-
----
+GitHub Actions runs on every push/PR: `ruff check .` → unit tests → integration tests against a PostgreSQL 16 service container.
