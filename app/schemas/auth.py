@@ -1,9 +1,18 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class Token(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+    access_token: str = Field(..., description="JWT bearer token to include in the Authorization header.")
+    token_type: str = Field("bearer", description="Token type — always 'bearer'.")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.abc123",
+                "token_type": "bearer",
+            }
+        }
+    )
 
 
 class TokenData(BaseModel):
@@ -11,5 +20,14 @@ class TokenData(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
+    email: EmailStr = Field(..., description="User's registered email address.")
+    password: str = Field(..., description="Account password.")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "email": "user@example.com",
+                "password": "password123",
+            }
+        }
+    )

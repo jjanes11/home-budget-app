@@ -6,21 +6,28 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import LoginRequest, Token
+from app.schemas.errors import ErrorResponse
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 
 router = APIRouter()
 
-_ERROR = {"description": "Error", "content": {"application/json": {"schema": {"type": "object", "properties": {"detail": {"type": "string"}}}}}}
+_401 = {"model": ErrorResponse, "description": "Missing, invalid, or expired token."}
 
 
 @router.post(
     "/register",
+    summary="Register a new user",
+    description=(
+        "Create a new user account with an email and password. "
+        "Returns the created user profile. Use `POST /auth/login` to obtain a token."
+    ),
+    operation_id="register",
     response_model=UserResponse,
     status_code=201,
     responses={
-        409: {**_ERROR, "description": "Email already registered"},
-        422: {**_ERROR, "description": "Validation error"},
+        409: {"model": ErrorResponse, "description": "Email address is already registered."},
+        422: {"model": ErrorResponse, "description": "Request body validation error."},
     },
 )
 def register(payload: LoginRequest, db: Session = Depends(get_db)):
@@ -30,10 +37,17 @@ def register(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post(
     "/login",
+    summary="Log in and obtain a JWT token",
+    description=(
+        "Authenticate with email and password using the OAuth2 password flow. "
+        "Returns a JWT bearer token valid for 30 minutes. "
+        "Pass the token as `Authorization: Bearer <token>` on subsequent requests."
+    ),
+    operation_id="login",
     response_model=Token,
     responses={
-        401: {**_ERROR, "description": "Invalid email or password"},
-        422: {**_ERROR, "description": "Validation error"},
+        401: {"model": ErrorResponse, "description": "Invalid email or password."},
+        422: {"model": ErrorResponse, "description": "Request body validation error."},
     },
 )
 def login(
@@ -48,10 +62,11 @@ def login(
 
 @router.get(
     "/me",
+    summary="Get current user",
+    description="Return the profile of the currently authenticated user.",
+    operation_id="getCurrentUser",
     response_model=UserResponse,
-    responses={
-        401: {**_ERROR, "description": "Not authenticated or token invalid"},
-    },
+    responses={401: _401},
 )
 def me(current_user: User = Depends(get_current_user)):
     return current_user
